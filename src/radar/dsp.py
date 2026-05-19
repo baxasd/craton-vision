@@ -6,26 +6,14 @@ from scipy.signal import butter, filtfilt, find_peaks
 
 from src.radar.parse import RadarConfig
 
-# Setup clean logging
 log = logging.getLogger("RadarMath")
 
-# Digital Filters
 def butter_bandpass_filter(data, lowcut, highcut, fs, order=4):
-    """
-    Applies a Butterworth bandpass filter to a 1D signal.
-    Used to isolate human step frequencies and ignore high-frequency noise 
-    or slow, gradual body shifts.
-    """
     nyq = 0.5 * fs
     b, a = butter(order, [lowcut / nyq, highcut / nyq], btype='band')
     return filtfilt(b, a, data)
 
-# The Data Session 
 class RecordingSession:
-    """
-    Loads raw radar bytes from disk, structures them based on the TI hardware
-    profile, and processes them into a Micro-Doppler Spectrogram.
-    """
     def __init__(self, filepath: str, cfg: RadarConfig):
         self.filepath = filepath
         self.cfg = cfg
@@ -34,7 +22,6 @@ class RecordingSession:
         self._load()
 
     def _load(self):
-        """Loads and extracts raw Range-Doppler Heatmap (RDHM) matrices from Parquet."""
         table = pq.read_table(self.filepath)
         df = table.to_pandas()
         
@@ -44,7 +31,6 @@ class RecordingSession:
         
         for raw_bytes, ts in zip(byte_list, timestamp_list):
             raw = np.frombuffer(raw_bytes, dtype=np.uint16)
-            
             if raw.size != exp: continue    
             mat = raw.astype(np.float32).reshape(self.cfg.numRangeBins, self.cfg.numLoops)
             self.frames.append(mat)
@@ -58,12 +44,7 @@ class RecordingSession:
     def duration_s(self):
         return (self.timestamps[-1] - self.timestamps[0]) if len(self.timestamps) > 1 else 0.0
 
-    # The DSP Engine
     def build_spectrogram(self, gate_lo_m: float, gate_hi_m: float, smooth_t: int = 2):
-        """
-        Converts the 3D Radar Data (Time, Range, Velocity) into 
-        2D Spectrogram Data (Time, Velocity) by collapsing the Range axis.
-        """
         cfg = self.cfg
         nv = cfg.numLoops
         
@@ -73,7 +54,7 @@ class RecordingSession:
         v_axis_coarse = np.linspace(-cfg.dopMax, cfg.dopMax, nv, dtype=np.float32)
         frames_3d = np.array(self.frames)
         
-        sl_3d = frames_3d[:, lo_bin:hi_bin, :].max(axis=1) # Shape becomes: (Time, Velocity)
+        sl_3d = frames_3d[:, lo_bin:hi_bin, :].max(axis=1)
         spec_lin = np.abs(np.fft.fftshift(sl_3d, axes=1))
 
         noise_lin = np.percentile(spec_lin, 30, axis=1, keepdims=True)
@@ -93,18 +74,9 @@ class RecordingSession:
         t0 = self.timestamps[0]
         t_axis = np.array([t - t0 for t in self.timestamps], dtype=np.float32)
 
-        # Extract raw peak range
-        range_profile_2d = frames_3d[:, lo_bin:hi_bin, :].max(axis=2)
-        peak_range_m = (np.argmax(range_profile_2d, axis=1) + lo_bin) * cfg.rangeRes
+        return spec_db, t_axis, v_axis_highres, centroid
 
-        return spec_db, t_axis, v_axis_highres, centroid, peak_range_m
-
-# Gait Extraction
 def extract_gait_metrics(spec: np.ndarray, t_axis: np.ndarray, v_axis: np.ndarray) -> tuple[float, float, float]:
-    """
-    Analyzes the Micro-Doppler signature to automatically detect the runner's Cadence (SPM)
-    and their physical velocity.
-    """
     profile = spec.mean(axis=0)
     noise_floor = float(np.percentile(profile, 20))
     weights = np.maximum(profile - noise_floor, 0)
@@ -129,15 +101,11 @@ def extract_gait_metrics(spec: np.ndarray, t_axis: np.ndarray, v_axis: np.ndarra
             filtered_sig = butter_bandpass_filter(movement, 1.0, 4.0, fps_est)
             peaks, _ = find_peaks(filtered_sig, distance=int(fps_est / 4.0), prominence=0.4)
             
-            # Primary: Peak Counting
             spm_peaks = len(peaks) / (float(t_axis[-1]) / 60.0) if t_axis[-1] > 0 else 0.0
             
-            # Secondary: Autocorrelation (more robust to noisy peaks)
-            # We look for the first major lag peak in the expected step range
             corr = np.correlate(filtered_sig, filtered_sig, mode='full')
             corr = corr[len(corr)//2:]
             
-            # Search range for 60-240 SPM (1.0 - 4.0 Hz)
             min_lag = int(fps_est / 4.0)
             max_lag = int(fps_est / 1.0)
             
@@ -145,7 +113,6 @@ def extract_gait_metrics(spec: np.ndarray, t_axis: np.ndarray, v_axis: np.ndarra
                 lag_peak = np.argmax(corr[min_lag:max_lag]) + min_lag
                 spm_corr = (60.0 * fps_est) / lag_peak
                 
-                # If they are close, use a weighted average, otherwise prefer peaks if prominent
                 if abs(spm_peaks - spm_corr) < 20:
                     spm = (spm_peaks + spm_corr) / 2.0
                 else:

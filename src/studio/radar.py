@@ -9,51 +9,19 @@ from scipy.signal import find_peaks, butter, filtfilt, welch
 from scipy.ndimage import uniform_filter1d
 from src.radar.parse import RadarConfig
 from src.radar.dsp import RecordingSession
-from src.utils.theme import (
-    COLOR_RADAR_BG, COLOR_CENTROID_MAIN, COLOR_CENTROID_SHADOW,
-    COLOR_ZERO_LINE, SETTINGS_PATH, COLOR_LEFT, COLOR_RIGHT,
-)
+from src.utils.theme import (COLOR_CENTROID_MAIN, COLOR_CENTROID_SHADOW,COLOR_ZERO_LINE, SETTINGS_PATH, COLOR_LEFT, COLOR_RIGHT,)
 
-# =====================================================================
-# VERSION TAG — increment this to bust Streamlit's cache automatically
-# when the analysis logic changes between deployments.
-# =====================================================================
-_ANALYSIS_VERSION = "v5"
-
-
-# =====================================================================
-# CORE ANALYSIS LOGIC
-# =====================================================================
-
-def analyze_gait_performance(time, velocity, peak_range, cfg):
-    """
-    Analyze radar micro-Doppler centroid velocity for a treadmill runner.
-
-    Parameters
-    ----------
-    time       : np.ndarray  — time axis in seconds
-    velocity   : np.ndarray  — raw Doppler centroid (radar units)
-    peak_range : np.ndarray  — raw range peak (m)
-    cfg        : dict        — all tunable parameters from the UI sidebar
-    """
+def analyze_gait_performance(time, velocity, cfg):
     v_raw = velocity * cfg["velocity_scale"]
     dt    = float(np.mean(np.diff(time))) if len(time) > 1 else 0.1
     fs    = 1.0 / dt
 
-    # ------------------------------------------------------------------
-    # 1. Display signal — light low-pass only, keeps DC for overlay
-    # ------------------------------------------------------------------
     try:
         bl, al = butter(4, min(cfg["lp_cutoff"] / (fs / 2), 0.99), btype='low')
         v_display = filtfilt(bl, al, v_raw)
     except Exception:
         v_display = v_raw.copy()
 
-    # ------------------------------------------------------------------
-    # 2. AC component — bandpass to isolate gait oscillation
-    #    High-pass removes: DC offset, treadmill belt Doppler, slow drift
-    #    Low-pass removes:  frame-to-frame radar noise
-    # ------------------------------------------------------------------
     try:
         bh, ah = butter(2, max(cfg["hp_cutoff"] / (fs / 2), 1e-4), btype='high')
         v_ac = filtfilt(bh, ah, v_raw)
@@ -66,11 +34,6 @@ def analyze_gait_performance(time, velocity, peak_range, cfg):
     except Exception:
         pass
 
-    # ------------------------------------------------------------------
-    # 3. Spectral cadence (on AC component)
-    #    Centroid oscillates at STRIDE rate = half step rate.
-    #    Search stride band, multiply by 2 for step SPM.
-    # ------------------------------------------------------------------
     try:
         nperseg       = min(len(v_ac), int(fs * 8))
         f_psd, pxx    = welch(v_ac, fs, nperseg=nperseg)
@@ -82,11 +45,8 @@ def analyze_gait_performance(time, velocity, peak_range, cfg):
         dom_stride_hz = 1.25
 
     freq_spm     = dom_stride_hz * 2 * 60
-    expected_gap = 1.0 / (dom_stride_hz * 2)   # seconds per step
+    expected_gap = 1.0 / (dom_stride_hz * 2)
 
-    # ------------------------------------------------------------------
-    # 4. Time-domain step detection (on AC component)
-    # ------------------------------------------------------------------
     min_dist   = max(1, int(fs * cfg["min_step_gap_s"]))
     ac_std     = float(np.std(v_ac))
     prominence = max(ac_std * cfg["prominence_factor"], 1e-5)
@@ -97,36 +57,27 @@ def analyze_gait_performance(time, velocity, peak_range, cfg):
     duration = float(time[-1] - time[0]) if len(time) > 1 else 1.0
     time_spm = (n_steps / duration * 60) if duration > 0 else 0.0
 
-    # ------------------------------------------------------------------
-    # 5. Confidence — exponential decay of SPM divergence
-    # ------------------------------------------------------------------
     divergence = abs(freq_spm - time_spm) / freq_spm if freq_spm > 0 else 1.0
     confidence = float(np.clip(100.0 * np.exp(-3.0 * divergence), 0, 100))
 
-    # ------------------------------------------------------------------
-    # 6. Displacement proxy — integrate AC, then remove integration drift
-    # ------------------------------------------------------------------
-    displacement = np.cumsum(v_ac * dt)
+    v_macro = v_display - np.mean(v_display)
+    displacement = np.cumsum(v_macro * dt)
+
     try:
-        bd, ad      = butter(2, max(0.02 / (fs / 2), 1e-4), btype='high')
+        bd, ad = butter(2, max(0.01 / (fs / 2), 1e-4), btype='high')
         displacement = filtfilt(bd, ad, displacement)
     except Exception:
         displacement = displacement - np.mean(displacement)
 
-    # ------------------------------------------------------------------
-    # 7. Drift / correction event detection (on smoothed displacement)
-    # ------------------------------------------------------------------
-    window_size   = max(1, int(fs * 2.0)) 
+    window_size   = max(1, int(fs * 4.0)) 
     smoothed_disp = uniform_filter1d(displacement, size=window_size)
+    
     disp_sd       = float(np.std(smoothed_disp))
     drift_limit   = cfg["drift_thresh_factor"] * disp_sd
 
     drifts        = smoothed_disp < -drift_limit
     corrections   = smoothed_disp >  drift_limit
 
-    # ------------------------------------------------------------------
-    # 8. Phase asymmetry tracker
-    # ------------------------------------------------------------------
     set_a, set_b = [], []
     current      = 0
 
@@ -167,15 +118,12 @@ def analyze_gait_performance(time, velocity, peak_range, cfg):
         temp_asym = abs(np.mean(gaps_ab) - np.mean(gaps_ba))
 
     return {
-        # signals
         "time":                  time,
         "v_raw":                 v_raw,
         "v_display":             v_display,
         "v_ac":                  v_ac,
         "displacement":          displacement,
         "smoothed_disp":         smoothed_disp,
-        "peak_range":            peak_range,
-        # detection
         "peaks":                 peaks,
         "step_set_a":            set_a,
         "step_set_b":            set_b,
@@ -183,38 +131,28 @@ def analyze_gait_performance(time, velocity, peak_range, cfg):
         "corrections":           corrections,
         "disp_sd":               disp_sd,
         "drift_limit":           drift_limit,
-        # metrics
         "total_step_count":      n_steps,
         "time_spm":              time_spm,
         "freq_spm":              freq_spm,
         "confidence":            confidence,
         "amp_asymmetry":         amp_asym,
         "temp_asymmetry":        temp_asym,
-        # version tag — ensures cache never serves stale keys
-        "_version":              _ANALYSIS_VERSION,
     }
 
 
-# =====================================================================
-# PLOTTING
-# =====================================================================
-
 def create_gait_plotly_figures(r):
-    """Four gait analysis plots. All detection uses v_ac (AC component)."""
-
     time = r["time"]
     v_ac = r["v_ac"]
     disp = r["displacement"]
     peaks = r["peaks"]
     idx_a = r["step_set_a"]
     idx_b = r["step_set_b"]
-    peak_range = r["peak_range"]
 
-    _layout = dict(height=300, margin=dict(l=0, r=0, t=40, b=0))
+    _layout = dict(
+        height=300, margin=dict(l=0, r=0, t=40, b=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
 
-    # ------------------------------------------------------------------
-    # Figure 1 — Gait Oscillation & Step Detection
-    # ------------------------------------------------------------------
     fig1 = go.Figure()
     fig1.add_trace(go.Scatter(
         x=time, y=v_ac,
@@ -234,9 +172,6 @@ def create_gait_plotly_figures(r):
         **_layout,
     )
 
-    # ------------------------------------------------------------------
-    # Figure 2 — Positional Drift Proxy
-    # ------------------------------------------------------------------
     fig2 = go.Figure()
     fig2.add_trace(go.Scatter(
         x=time, y=disp,
@@ -261,9 +196,6 @@ def create_gait_plotly_figures(r):
         **_layout,
     )
 
-    # ------------------------------------------------------------------
-    # Figure 3 — Phase Asymmetry
-    # ------------------------------------------------------------------
     fig3 = go.Figure()
     if len(idx_a):
         fig3.add_trace(go.Bar(
@@ -282,39 +214,14 @@ def create_gait_plotly_figures(r):
         title=f"Step Phase Amplitudes — Asymmetry: {r['amp_asymmetry']:.1f}%  |  Temporal: {r['temp_asymmetry']:.3f} s",
         xaxis_title="Time (s)", yaxis_title="AC Peak Velocity (m/s)",
         barmode='overlay',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         **_layout,
     )
 
-    # ------------------------------------------------------------------
-    # Figure 4 — Raw Distance Noise (Limb Swing)
-    # ------------------------------------------------------------------
-    fig4 = go.Figure()
-    fig4.add_trace(go.Scatter(
-        x=time, y=peak_range,
-        name="Raw Peak Range",
-        line=dict(color="purple", width=1),
-    ))
-    fig4.update_layout(
-        title="Raw Distance Noise (visualizing limb swing / distance jitter)",
-        xaxis_title="Time (s)", yaxis_title="Distance (m)",
-        **_layout,
-    )
-
-    return fig1, fig2, fig3, fig4
-
-
-# =====================================================================
-# CACHED DATA LOADER
-# =====================================================================
+    return fig1, fig2, fig3
 
 @st.cache_data(show_spinner=False)
 def process_radar_data(file_bytes, range_lo, range_hi, smooth_window, cfg_tuple):
-    """
-    cfg_tuple contains all analysis parameters as a hashable tuple so
-    Streamlit re-runs the analysis whenever any parameter changes.
-    """
-    cfg = dict(cfg_tuple)   # convert back to dict for use in analysis
+    cfg = dict(cfg_tuple)
 
     with tempfile.NamedTemporaryFile(delete=False, suffix='.parquet') as tmp:
         tmp.write(file_bytes)
@@ -329,8 +236,8 @@ def process_radar_data(file_bytes, range_lo, range_hi, smooth_window, cfg_tuple)
             radar_cfg = None
 
         session              = RecordingSession(tmp_path, radar_cfg)
-        spec, t_axis, v_axis, centroid, peak_range = session.build_spectrogram(range_lo, range_hi, smooth_window)
-        gait_results         = analyze_gait_performance(t_axis, centroid, peak_range, cfg)
+        spec, t_axis, v_axis, centroid = session.build_spectrogram(range_lo, range_hi, smooth_window)
+        gait_results         = analyze_gait_performance(t_axis, centroid, cfg)
         fps                  = session.num_frames / session.duration_s if session.duration_s > 0 else 0.0
         dop_res              = radar_cfg.dopRes if radar_cfg else 0.0
 
@@ -339,10 +246,6 @@ def process_radar_data(file_bytes, range_lo, range_hi, smooth_window, cfg_tuple)
         os.remove(tmp_path)
 
 
-# =====================================================================
-# VIEW RENDERER
-# =====================================================================
-
 def render():
     st.write("")
     if st.button("← Back to Hub", type="tertiary"):
@@ -350,9 +253,6 @@ def render():
         st.rerun()
     st.markdown("<h2 style='margin-top: -15px;'>Radar Analysis</h2>", unsafe_allow_html=True)
 
-    # ------------------------------------------------------------------
-    # Upload screen
-    # ------------------------------------------------------------------
     if st.session_state.get('radar_bytes') is None:
         st.markdown("""<style>[data-testid="stSidebar"] {display: none;}</style>""", unsafe_allow_html=True)
         _, center_col, _ = st.columns([1, 2, 1])
@@ -365,71 +265,11 @@ def render():
                     st.rerun()
         return
 
-    # ------------------------------------------------------------------
-    # Sidebar — all tunable parameters exposed
-    # ------------------------------------------------------------------
     with st.sidebar:
-
         st.markdown("### Range Filter")
         col_lo, col_hi = st.columns(2)
         range_lo = col_lo.number_input("Min (m)", min_value=0.0,  max_value=49.0, value=0.0, step=0.1)
         range_hi = col_hi.number_input("Max (m)", min_value=0.1,  max_value=50.0, value=5.0, step=0.1)
-
-        st.markdown("### Calibration")
-        velocity_scale = st.number_input(
-            "Velocity Scale Factor",
-            min_value=0.001, max_value=1.0,
-            value=round(2.0 / 15.0, 4), step=0.001, format="%.4f",
-            help="Converts raw radar Doppler units to m/s.",
-        )
-
-        st.markdown("### Signal Filtering")
-        st.caption(
-            "The centroid has a DC offset from the treadmill belt. "
-            "The high-pass removes that; the low-pass removes frame noise."
-        )
-        hp_cutoff = st.slider(
-            "High-pass cutoff (Hz)",
-            min_value=0.1, max_value=1.5, value=0.5, step=0.05,
-            help="Removes DC offset + treadmill belt Doppler. "
-                 "Raise if the signal still has a flat baseline after filtering.",
-        )
-        lp_cutoff = st.slider(
-            "Low-pass cutoff (Hz)",
-            min_value=2.0, max_value=10.0, value=3.5, step=0.5,
-            help="Removes high-frequency radar noise. "
-                 "Lower if you see too much jitter in the AC signal.",
-        )
-
-        st.markdown("### Step Detection")
-        step_freq_min = st.slider(
-            "Min step freq (Hz)",
-            min_value=0.5, max_value=2.5, value=2.2, step=0.1,
-            help="90 SPM = 1.5 Hz. Lower only for very slow walking.",
-        )
-        step_freq_max = st.slider(
-            "Max step freq (Hz)",
-            min_value=2.0, max_value=6.0, value=3.5, step=0.1,
-            help="240 SPM = 4.0 Hz. Upper physiological limit for sprinting.",
-        )
-        min_step_gap = st.slider(
-            "Min step gap (s)",
-            min_value=0.15, max_value=0.5, value=0.28, step=0.01,
-            help="Minimum time between two steps. 0.25 s = 4 Hz physiological limit.",
-        )
-        prominence_factor = st.slider(
-            "Peak prominence factor",
-            min_value=0.05, max_value=1.0, value=0.45, step=0.05,
-            help="Fraction of signal std required for a peak to count as a step. "
-                 "Raise if false positives, lower if real steps are missed.",
-        )
-
-        st.markdown("### Drift Detection")
-        drift_thresh_factor = st.slider(
-            "Drift threshold factor",
-            min_value=0.5, max_value=5.0, value=1.0, step=0.1,
-            help="Multiplier on standard deviation for drift/correction events.",
-        )
 
         st.markdown("### Visual Overlays")
         cmap_sel    = st.selectbox("Colormap:", ['Jet', 'Inferno', 'Plasma'], index=0)
@@ -439,12 +279,52 @@ def render():
         smooth_win  = st.number_input("DSP Smoothing Window:", min_value=1, max_value=10, value=3, step=1)
         show_centroid = st.checkbox("Overlay Centroid Line", value=True)
 
+        st.markdown("### Calibration")
+        velocity_scale = st.number_input(
+            "Velocity Scale Factor",
+            min_value=0.001, max_value=1.0,
+            value=round(2.0 / 15.0, 4), step=0.001, format="%.4f"
+        )
+
+        st.markdown("### Signal Filtering")
+        hp_cutoff = st.number_input(
+            "High-pass cutoff (Hz)",
+            min_value=0.1, max_value=1.5, value=0.5, step=0.05
+        )
+        lp_cutoff = st.number_input(
+            "Low-pass cutoff (Hz)",
+            min_value=2.0, max_value=10.0, value=3.5, step=0.5
+        )
+
+        st.markdown("### Step Detection")
+        step_freq_min = st.number_input(
+            "Min step freq (Hz)",
+            min_value=0.5, max_value=2.5, value=2.2, step=0.1
+        )
+        step_freq_max = st.number_input(
+            "Max step freq (Hz)",
+            min_value=2.0, max_value=6.0, value=3.5, step=0.1
+        )
+        min_step_gap = st.number_input(
+            "Min step gap (s)",
+            min_value=0.15, max_value=0.5, value=0.28, step=0.01
+        )
+        prominence_factor = st.number_input(
+            "Peak prominence factor",
+            min_value=0.05, max_value=1.0, value=0.45, step=0.05
+        )
+
+        st.markdown("### Drift Detection")
+        drift_thresh_factor = st.number_input(
+            "Drift threshold factor",
+            min_value=0.5, max_value=5.0, value=1.0, step=0.1
+        )
+
         st.divider()
         if st.button("Clear Workspace", use_container_width=True):
             st.session_state.radar_bytes = None
             st.rerun()
 
-    # Bundle all analysis params into a sorted tuple for cache keying
     cfg_tuple = tuple(sorted({
         "velocity_scale":      velocity_scale,
         "hp_cutoff":           hp_cutoff,
@@ -453,13 +333,9 @@ def render():
         "step_freq_max_hz":    step_freq_max,
         "min_step_gap_s":      min_step_gap,
         "prominence_factor":   prominence_factor,
-        "drift_thresh_factor": drift_thresh_factor,
-        "_version":            _ANALYSIS_VERSION,  # forces cache bust on code changes
+        "drift_thresh_factor": drift_thresh_factor
     }.items()))
 
-    # ------------------------------------------------------------------
-    # Process
-    # ------------------------------------------------------------------
     with st.spinner("Crunching Micro-Doppler FFTs..."):
         spec, t_axis, v_axis, centroid, gait, dur, frames, fps, dop_res = process_radar_data(
             st.session_state.radar_bytes,
@@ -467,10 +343,7 @@ def render():
             cfg_tuple,
         )
 
-    # ------------------------------------------------------------------
-    # Metrics summary
-    # ------------------------------------------------------------------
-    with st.container(border=True):
+    with st.container():
         st.markdown("**Gait Performance Metrics**")
         stats = {
             "Steps":         f"{gait['total_step_count']}",
@@ -482,56 +355,41 @@ def render():
         }
         st.dataframe(pd.DataFrame([stats]), hide_index=True, use_container_width=True)
 
-    # ------------------------------------------------------------------
-    # Tabs
-    # ------------------------------------------------------------------
-    tab1, tab2 = st.tabs(["Micro-Doppler Spectrogram", "Gait Analysis Dashboard"])
+    sub_spec = spec[::4, ::4]
+    z_min    = float(np.percentile(sub_spec, cont_lo))
+    z_max    = float(np.percentile(sub_spec, cont_hi))
+    if z_min >= z_max:
+        z_max = z_min + 0.1
 
-    with tab1:
-        with st.container(border=True):
-            sub_spec = spec[::4, ::4]
-            z_min    = float(np.percentile(sub_spec, cont_lo))
-            z_max    = float(np.percentile(sub_spec, cont_hi))
-            if z_min >= z_max:
-                z_max = z_min + 0.1
+    fig = go.Figure()
+    fig.add_trace(go.Heatmap(
+        z=spec.T, x=t_axis, y=v_axis,
+        colorscale=cmap_sel,
+        zmin=z_min, zmax=z_max,
+        hoverinfo='skip', showscale=False,
+    ))
+    if show_centroid and centroid is not None:
+        fig.add_trace(go.Scatter(
+            x=t_axis, y=centroid, mode='lines',
+            line=dict(color=COLOR_CENTROID_SHADOW, width=4),
+            hoverinfo='skip', showlegend=False,
+        ))
+        fig.add_trace(go.Scatter(
+            x=t_axis, y=centroid, mode='lines',
+            name='Motion Centroid',
+            line=dict(color=COLOR_CENTROID_MAIN, width=1.5),
+            showlegend=True,
+        ))
+    fig.add_hline(y=0, line_dash="dash", line_color=COLOR_ZERO_LINE, line_width=1)
+    fig.update_layout(
+        title="Micro-Doppler Spectrogram",
+        xaxis_title="Time (s)", yaxis_title="Velocity (m/s)",
+        height=300, margin=dict(l=0, r=0, t=40, b=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
-            fig = go.Figure()
-            fig.add_trace(go.Heatmap(
-                z=spec.T, x=t_axis, y=v_axis,
-                colorscale=cmap_sel,
-                zmin=z_min, zmax=z_max,
-                hoverinfo='skip', showscale=False,
-            ))
-            if show_centroid and centroid is not None:
-                fig.add_trace(go.Scatter(
-                    x=t_axis, y=centroid, mode='lines',
-                    line=dict(color=COLOR_CENTROID_SHADOW, width=4),
-                    hoverinfo='skip', showlegend=False,
-                ))
-                fig.add_trace(go.Scatter(
-                    x=t_axis, y=centroid, mode='lines',
-                    name='Motion Centroid',
-                    line=dict(color=COLOR_CENTROID_MAIN, width=1.5),
-                    showlegend=False,
-                ))
-            fig.add_hline(y=0, line_dash="dash", line_color=COLOR_ZERO_LINE, line_width=1)
-            fig.update_layout(
-                xaxis_title="Time (s)", yaxis_title="Velocity (m/s)",
-                height=500, margin=dict(l=0, r=0, t=20, b=0),
-                plot_bgcolor=COLOR_RADAR_BG, paper_bgcolor='rgba(0,0,0,0)',
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-    with tab2:
-        st.info(
-            "💡 **Signal model:** The Doppler centroid contains a DC offset from the treadmill belt "
-            "(belt surface moves away from the radar, creating a persistent negative Doppler). "
-            "The high-pass filter removes this so step rhythm can be detected in the AC oscillation. "
-            "Phase A/B are oscillatory proxies — single-point radar cannot identify true left/right limbs. "
-            "Displacement is a relative proxy, not absolute position."
-        )
-        f1, f2, f3, f4 = create_gait_plotly_figures(gait)
-        st.plotly_chart(f1, use_container_width=True)
-        st.plotly_chart(f2, use_container_width=True)
-        st.plotly_chart(f3, use_container_width=True)
-        st.plotly_chart(f4, use_container_width=True)
+    f1, f2, f3 = create_gait_plotly_figures(gait)
+    st.plotly_chart(f1, use_container_width=True)
+    st.plotly_chart(f2, use_container_width=True)
+    st.plotly_chart(f3, use_container_width=True)
