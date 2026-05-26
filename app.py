@@ -27,10 +27,25 @@ def run_capture(output_file, duration):
     fps = config.getint('Camera', 'fps', fallback=30)
     auto_exposure = config.getboolean('Camera', 'auto_exposure', fallback=True)
     exposure = config.getint('Camera', 'exposure', fallback=156)
-    preset = config.getint('Camera', 'preset', fallback=4)
-    spatial = config.getboolean('Camera', 'spatial_filter', fallback=True)
-    temporal = config.getboolean('Camera', 'temporal_filter', fallback=True)
-    hole_fill = config.getboolean('Camera', 'hole_filling', fallback=True)
+    laser_power = config.getint('Camera', 'laser_power', fallback=150)
+    preset = config.get('Camera', 'preset', fallback='High Density')
+    
+    decimation = config.getboolean('Camera', 'decimation_filter', fallback=False)
+    decimation_magnitude = config.getint('Camera', 'decimation_magnitude', fallback=2)
+    disparity = config.getboolean('Camera', 'disparity_filter', fallback=False)
+    
+    spatial = config.getboolean('Camera', 'spatial_filter', fallback=False)
+    spatial_alpha = config.getfloat('Camera', 'spatial_alpha', fallback=0.5)
+    spatial_delta = config.getint('Camera', 'spatial_delta', fallback=20)
+    spatial_iterations = config.getint('Camera', 'spatial_iterations', fallback=2)
+    
+    temporal = config.getboolean('Camera', 'temporal_filter', fallback=False)
+    temporal_alpha = config.getfloat('Camera', 'temporal_alpha', fallback=0.4)
+    temporal_delta = config.getint('Camera', 'temporal_delta', fallback=20)
+    temporal_persistence = config.getint('Camera', 'temporal_persistence', fallback=3)
+    
+    hole_fill = config.getboolean('Camera', 'hole_filling', fallback=False)
+    hole_filling_mode = config.getint('Camera', 'hole_filling_mode', fallback=1)
 
     mp_complex = config.getint('MediaPipe', 'model_complexity', fallback=1)
     mp_conf = config.getfloat('MediaPipe', 'min_confidence', fallback=0.5)
@@ -45,8 +60,20 @@ def run_capture(output_file, duration):
         preset=preset,
         spatial=spatial,
         temporal=temporal,
-        hole_filling=hole_fill
+        hole_filling=hole_fill,
+        decimation=decimation,
+        disparity=disparity
     )
+    
+    camera.set_laser_power(laser_power)
+    camera.decimation_magnitude = decimation_magnitude
+    camera.spatial_alpha = spatial_alpha
+    camera.spatial_delta = spatial_delta
+    camera.spatial_iterations = spatial_iterations
+    camera.temporal_alpha = temporal_alpha
+    camera.temporal_delta = temporal_delta
+    camera.temporal_persistence = temporal_persistence
+    camera.hole_filling_mode = hole_filling_mode
     
     if not camera.pipeline:
         log.error("Failed to initialize RealSense camera. Returning to menu.")
@@ -75,10 +102,21 @@ def run_capture(output_file, duration):
                     "fps": fps,
                     "auto_exposure": auto_exposure,
                     "exposure": exposure,
+                    "laser_power": laser_power,
                     "preset": preset,
+                    "decimation_filter": decimation,
+                    "decimation_magnitude": decimation_magnitude,
+                    "disparity_filter": disparity,
                     "spatial_filter": spatial,
+                    "spatial_alpha": spatial_alpha,
+                    "spatial_delta": spatial_delta,
+                    "spatial_iterations": spatial_iterations,
                     "temporal_filter": temporal,
-                    "hole_filling": hole_fill
+                    "temporal_alpha": temporal_alpha,
+                    "temporal_delta": temporal_delta,
+                    "temporal_persistence": temporal_persistence,
+                    "hole_filling": hole_fill,
+                    "hole_filling_mode": hole_filling_mode
                 },
                 "mediapipe": {
                     "model_complexity": mp_complex,

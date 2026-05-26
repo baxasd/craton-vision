@@ -16,10 +16,20 @@ def ensure_config():
             'auto_exposure': 'True',
             'exposure': '156',
             'laser_power': '150',
-            'preset': '4',
+            'preset': 'High Density',
+            'decimation_filter': 'False',
+            'decimation_magnitude': '2',
+            'disparity_filter': 'False',
             'spatial_filter': 'False',
+            'spatial_alpha': '0.5',
+            'spatial_delta': '20',
+            'spatial_iterations': '2',
             'temporal_filter': 'False',
-            'hole_filling': 'False'
+            'temporal_alpha': '0.4',
+            'temporal_delta': '20',
+            'temporal_persistence': '3',
+            'hole_filling': 'False',
+            'hole_filling_mode': '1'
         }
         
         # MediaPipe-specific settings

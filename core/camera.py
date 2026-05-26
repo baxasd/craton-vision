@@ -11,12 +11,36 @@ class RealSenseCamera:
     Handles stream configuration, frame alignment, and hardware-accelerated filters.
     """
     def __init__(self, width=640, height=480, fps=30, auto_exposure=True, manual_exposure=156,
-                 preset=4, spatial=False, temporal=False, hole_filling=False, decimation=False):
+                 preset="High Density", spatial=False, temporal=False, hole_filling=False, decimation=False, disparity=False):
         self.pipeline = None
         self.use_spatial = spatial
         self.use_temporal = temporal
         self.use_hole_filling = hole_filling
         self.use_decimation = decimation
+        self.use_disparity = disparity
+        
+        # Filter parameter state
+        self.decimation_magnitude = 2
+        
+        self.spatial_alpha = 0.5
+        self.spatial_delta = 20
+        self.spatial_iterations = 2
+        
+        self.temporal_alpha = 0.4
+        self.temporal_delta = 20
+        self.temporal_persistence = 3
+        
+        self.hole_filling_mode = 1
+
+        self.preset_map = {
+            "Custom": 0,
+            "Default": 1,
+            "Hand": 2,
+            "High Accuracy": 3,
+            "High Density": 4,
+            "Medium Density": 5
+        }
+
         
         try:
             self.pipeline = rs.pipeline()
@@ -37,8 +61,10 @@ class RealSenseCamera:
             
             # ── HARDWARE FILTERS ──
             self.decimation_filter = rs.decimation_filter()
+            self.depth_to_disparity = rs.disparity_transform(True)
             self.spatial_filter = rs.spatial_filter()
             self.temporal_filter = rs.temporal_filter()
+            self.disparity_to_depth = rs.disparity_transform(False)
             self.hole_filling_filter = rs.hole_filling_filter()
             
             # ── SENSOR CONTROL ──
@@ -51,14 +77,19 @@ class RealSenseCamera:
             log.error(f"Camera hardware initialization failed: {e}")
             self.pipeline = None
 
-    def set_preset(self, preset: int):
-        """Changes the onboard visual preset (e.g. 4 = High Density)."""
+    def set_preset(self, preset):
+        """Changes the onboard visual preset by name or int."""
         if not self.profile: return
+        
+        preset_val = preset
+        if isinstance(preset, str):
+            preset_val = self.preset_map.get(preset, 4)
+            
         try:
             depth_sensor = self.profile.get_device().first_depth_sensor()
             if depth_sensor.supports(rs.option.visual_preset):
-                depth_sensor.set_option(rs.option.visual_preset, preset) 
-                log.info(f"Depth Sensor set to preset: {preset}")
+                depth_sensor.set_option(rs.option.visual_preset, preset_val) 
+                log.info(f"Depth Sensor set to preset: {preset} ({preset_val})")
         except Exception as e:
             log.warning(f"Could not set hardware preset: {e}")
 
@@ -104,11 +135,31 @@ class RealSenseCamera:
                 return None, None
             
             # Apply Software Filters to the aligned depth
+            # Recommended order: Decimation -> Depth2Disparity -> Spatial -> Temporal -> Disparity2Depth -> HoleFilling
+            if self.use_decimation:
+                self.decimation_filter.set_option(rs.option.filter_magnitude, self.decimation_magnitude)
+                depth_frame = self.decimation_filter.process(depth_frame)
+                
+            if self.use_disparity:
+                depth_frame = self.depth_to_disparity.process(depth_frame)
+                
             if self.use_spatial:
+                self.spatial_filter.set_option(rs.option.filter_smooth_alpha, self.spatial_alpha)
+                self.spatial_filter.set_option(rs.option.filter_smooth_delta, self.spatial_delta)
+                self.spatial_filter.set_option(rs.option.holes_fill, self.spatial_iterations)
                 depth_frame = self.spatial_filter.process(depth_frame)
+                
             if self.use_temporal:
+                self.temporal_filter.set_option(rs.option.filter_smooth_alpha, self.temporal_alpha)
+                self.temporal_filter.set_option(rs.option.filter_smooth_delta, self.temporal_delta)
+                self.temporal_filter.set_option(rs.option.holes_fill, self.temporal_persistence)
                 depth_frame = self.temporal_filter.process(depth_frame)
+                
+            if self.use_disparity:
+                depth_frame = self.disparity_to_depth.process(depth_frame)
+                
             if self.use_hole_filling:
+                self.hole_filling_filter.set_option(rs.option.holes_fill, self.hole_filling_mode)
                 depth_frame = self.hole_filling_filter.process(depth_frame)
 
             return np.asanyarray(color_frame.get_data()), depth_frame
