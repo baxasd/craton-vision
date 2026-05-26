@@ -1,9 +1,7 @@
-import sys
 import math
 import time
 import json
 import struct
-import numpy as np
 import dearpygui.dearpygui as dpg
 
 # Standard MediaPipe Pose connections for skeleton drawing
@@ -37,18 +35,18 @@ def load_bin_file(filepath):
     
     try:
         with open(filepath, 'rb') as f:
-            # 1. Read metadata length
+            # Read metadata length
             len_buf = f.read(4)
             if not len_buf:
                 return metadata, frames
             
             meta_len = struct.unpack("I", len_buf)[0]
             
-            # 2. Read metadata JSON
+            # Read metadata JSON
             meta_bytes = f.read(meta_len)
             metadata = json.loads(meta_bytes.decode('utf-8'))
             
-            # 3. Read frames sequentially
+            # Read frames sequentially
             while True:
                 header_buf = f.read(12) # double (8 bytes) + unsigned int (4 bytes)
                 if not header_buf or len(header_buf) < 12:
@@ -57,7 +55,7 @@ def load_bin_file(filepath):
                 ts, num_joints = struct.unpack("dI", header_buf)
                 
                 joints = {}
-                # 4. Read each joint (24 bytes)
+                # Read each joint (24 bytes)
                 for _ in range(num_joints):
                     j_buf = f.read(24) # Ifffii
                     if len(j_buf) < 24:
@@ -204,13 +202,13 @@ def main():
             with dpg.child_window(width=640, height=520):
                 dpg.add_text("3D VISUALIZER", color=(100, 200, 255))
                 # Create a solid black background
-                with dpg.drawlist(width=640, height=480):
+                with dpg.drawlist(width=620, height=450):
                     dpg.draw_rectangle(pmin=(0,0), pmax=(640, 480), color=(0,0,0,255), fill=(20,20,25,255))
                     dpg.add_draw_node(tag="canvas")
                 
                 with dpg.group(horizontal=True):
-                    dpg.add_button(label="Play", tag="play_btn", callback=toggle_play, width=80)
-                    dpg.add_slider_int(tag="frame_slider", min_value=0, max_value=0, width=540, callback=slider_changed)
+                    dpg.add_button(label="Play", tag="play_btn", callback=toggle_play, width=70)
+                    dpg.add_slider_int(tag="frame_slider", min_value=0, max_value=0, width=545, callback=slider_changed)
 
             # --- Right Column: Controls & Metadata ---
             with dpg.child_window(width=400, height=520):
@@ -235,7 +233,7 @@ def main():
                     dpg.add_text("No file loaded.\nClick 'Load .bin File' to begin.", tag="meta_text", wrap=360)
 
 
-    dpg.create_viewport(title='Binary Data Visualizer (DearPyGui)', width=1080, height=560, resizable=False)
+    dpg.create_viewport(title='Visualizer', width=1080, height=580, resizable=False)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window("Primary Window", True)

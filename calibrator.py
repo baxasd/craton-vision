@@ -161,11 +161,8 @@ def main():
                     dpg.add_text("0: fill_from_left", color=(150, 150, 150))
                     dpg.add_text("1: farest_from_around", color=(150, 150, 150))
                     dpg.add_text("2: nearest_from_around", color=(150, 150, 150))
-                    
-                    dpg.add_spacer(height=20)
-                    dpg.add_button(label="Quit", callback=lambda: dpg.stop_dearpygui(), width=-1)
 
-    dpg.create_viewport(title='RealSense Configurator (DearPyGui)', width=tex_width + 30, height=tex_height + 400)
+    dpg.create_viewport(title='RealSense Calibrator', width=tex_width + 50, height=tex_height + 400, resizable=False)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window("Primary Window", True)

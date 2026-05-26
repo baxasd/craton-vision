@@ -50,7 +50,12 @@ A `settings.ini` file will be generated on first run. Configure resolution, FPS,
 
 To visually configure the camera, run
 ```bash
-python calibration.py
+python calibrator.py
+```
+
+To inspect captured data, run
+```bash
+python viewer.py
 ```
 
 ## Contribution & License
