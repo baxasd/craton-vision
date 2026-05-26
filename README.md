@@ -55,5 +55,5 @@ python calibration.py
 
 ## Contribution & License
 
-- **License**: Distributed under the [Apache 2.0 License](LICENSE).
+- **License**: Distributed under the [Apache 2.0 License](LICENSE.md).
 - **Contributions**: Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change. PRs containing unreviewed, generated AI content will be closed.
