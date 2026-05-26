@@ -1,84 +1,39 @@
-# Craton Suite 
+# Headless Camera Recorder
 
-<p align="left"><img src="assets/logo.png" alt="Craton Suite Logo" width="250"></p>
+A lightweight, headless CLI tool for capturing 3D human pose estimation using an Intel RealSense camera and MediaPipe. 
 
-#### Human Osteo-Skeletal Tracker
-
-Craton Suite is a high-performance, distributed workstation for recording, processing, and visualizing multi-modal skeletal kinematics and micro-Doppler radar data. 
-
-![Version](https://img.shields.io/badge/version-1.0.0-green)
 ![Python](https://img.shields.io/badge/python-3.11-green)
-![ZeroMQ](https://img.shields.io/badge/ZeroMQ-TOFU--Curve25519-red)
-
-> **🚀 Stable Release:** Version 1.0.0 marks the first production-ready release of the Craton Suite.
 
 ---
 
-## 🏛️ Project Architecture
+## 🏛️ Architecture
 
-The suite is organized into a modular directory structure for scalability and maintainability:
+The project has been aggressively stripped down to focus exclusively on headless camera capture:
 
 ```
-src/
-├── core/               (Internal application state & logic)
-├── vision/             (Skeletal tracking & Depth estimation)
-├── hardware/           (TI Radar & Intel RealSense drivers)
-├── radar/              (DSP, FFT processing & Parsing)
-├── studio/             (Offline Laboratory UI)
-├── data/               (Parquet I/O & Data models)
-├── maths/              (Filtering & Motion kinematics)
-└── utils/              (Shared configs & Global themes)
+core/
+├── camera.py  (Intel RealSense driver & frame alignment)
+├── pose.py    (MediaPipe Pose Estimator & 2D inference)
+├── depth.py   (3D deprojection math)
+└── config.py  (Settings generation & loading)
+app.py         (Minimal CLI menu)
 ```
-
----
-
-## 🛰️ Core Modules
-
-### 📡 Craton Streamer (`stream.py`)
-The hardware-interfacing node. Captures live telemetry, performs local parsing, and broadcasts encrypted streams via ZMQ. Features an automated **TOFU (Trust On First Use)** key server for seamless client connectivity.
-
-### 🖥️ Craton Viewer (`view.py`)
-The live monitoring dashboard. Automatically handshakes with the Streamer to retrieve encryption keys and visualizes high-speed skeletal and radar heatmaps.
-
-### 🧪 Craton Studio (`app.py`)
-The offline analysis laboratory. A Streamlit-based workbench for post-processing recorded `.parquet` sessions and gait analysis. Now features **Remote Access QR Codes** and **Instant Demo Downloads** (Camera & Radar) on the login screen for quick evaluation.
-
----
-
-## 🔐 Security & TOFU
-
-The suite uses **CurveZMQ (Curve25519)** for end-to-end encryption. 
-With the new **TOFU Architecture**, manual key distribution is no longer required:
-1. **Publisher** starts a background key-exchange thread on port `5554`.
-2. **Listener** connects to the key port, retrieves the server's public key, and closes the temporary link.
-3. **Listener** establishes the secure, encrypted data stream on ports `5555`/`5556`.
 
 ---
 
 ## 🚀 Quick Start
 
-The suite now features **Zero-Configuration Setup**. Cryptographic keys and default settings are generated automatically on the first launch.
-
-1. **Stream:** Run `python stream.py` on the computer connected to hardware.
-2. **View:** Run `python view.py` on any computer in the network to watch the live feed.
-3. **Analyze:** Run `python app.py` to launch the offline Studio laboratory.
-
-> **Note:** On the first run, a `settings.ini` file will be created in the root directory. You can edit this file to change COM ports, IP addresses, or the default Studio password (initially set to `admin`).
+1. Connect your Intel RealSense camera.
+2. Run the application:
+   ```bash
+   python app.py
+   ```
+3. A `settings.ini` file will be auto-generated if it does not exist. You can configure camera width, height, fps, and exposure here.
+4. Follow the minimal CLI menu to specify an output JSONL file and a duration (in seconds, 0 for infinite).
 
 ---
 
 ## ⚙️ Supported Hardware
 
-**Texas Instruments IWR6843ISK**
-60-GHz mmWave radar sensor for non-intrusive velocity and point-cloud capture.
-
-**Intel RealSense D435i**
+**Intel RealSense (e.g. D435i)**
 RGB-Depth camera for precise skeletal kinematics and joint angle calculation.
-
-## 🤝 Contributing
-
-We welcome community contributions and improvements! To ensure the stability of the core system, please follow these guidelines:
-
-1. **Software & UI:** Contributions to the Studio UI, data processing logic, and mathematical filters are highly encouraged.
-2. **Hardware Drivers:** To maintain system integrity and hardware driver stability, **Pull Requests involving changes to the `src/hardware/` or `src/radar/` core drivers will not be accepted.**
-3. **Bug Reports:** If you find a bug, please open an issue with detailed reproduction steps.
