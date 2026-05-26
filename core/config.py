@@ -14,7 +14,12 @@ def ensure_config():
             'height': '480',
             'fps': '30',
             'auto_exposure': 'True',
-            'exposure': '156'
+            'exposure': '156',
+            'laser_power': '150',
+            'preset': '4',
+            'spatial_filter': 'False',
+            'temporal_filter': 'False',
+            'hole_filling': 'False'
         }
         
         # MediaPipe-specific settings

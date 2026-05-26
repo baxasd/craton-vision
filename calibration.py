@@ -2,149 +2,199 @@ import cv2
 import time
 import numpy as np
 import configparser
+import dearpygui.dearpygui as dpg
 from core.camera import RealSenseCamera
 from core.pose import PoseEstimator
 from core.config import SETTINGS_PATH, ensure_config
 
-def noop(*args):
-    pass
+def save_settings():
+    config = configparser.ConfigParser()
+    config.read(SETTINGS_PATH)
+    config['Camera']['preset'] = str(dpg.get_value("preset"))
+    config['Camera']['auto_exposure'] = str(dpg.get_value("auto_exp"))
+    config['Camera']['exposure'] = str(dpg.get_value("exposure"))
+    config['Camera']['laser_power'] = str(dpg.get_value("laser"))
+    config['Camera']['spatial_filter'] = str(dpg.get_value("spatial"))
+    config['Camera']['temporal_filter'] = str(dpg.get_value("temporal"))
+    config['Camera']['hole_filling'] = str(dpg.get_value("hole_fill"))
+    with open(SETTINGS_PATH, 'w') as f:
+        config.write(f)
+    print(">> Settings saved to settings.ini!")
 
 def main():
-    # Ensure config exists
     ensure_config()
     
     config = configparser.ConfigParser()
     config.read(SETTINGS_PATH)
     
-    width = config.getint('Camera', 'width', fallback=640)
-    height = config.getint('Camera', 'height', fallback=480)
-    fps = config.getint('Camera', 'fps', fallback=30)
-    auto_exp = config.getboolean('Camera', 'auto_exposure', fallback=True)
-    exposure = config.getint('Camera', 'exposure', fallback=156)
-    preset = config.getint('Camera', 'preset', fallback=4)
-    spatial = config.getboolean('Camera', 'spatial_filter', fallback=True)
-    temporal = config.getboolean('Camera', 'temporal_filter', fallback=True)
-    hole_fill = config.getboolean('Camera', 'hole_filling', fallback=True)
+    # Load settings with defaults
+    cam_cfg = config['Camera'] if 'Camera' in config else {}
+    width = int(cam_cfg.get('width', '640'))
+    height = int(cam_cfg.get('height', '480'))
+    fps = int(cam_cfg.get('fps', '30'))
+    
+    init_auto_exp = cam_cfg.get('auto_exposure', 'False') == 'True'
+    init_exposure = int(cam_cfg.get('exposure', '156'))
+    init_laser = int(cam_cfg.get('laser_power', '150'))
+    init_preset = cam_cfg.get('preset', '4') # String for combobox
+    init_spatial = cam_cfg.get('spatial_filter', 'False') == 'True'
+    init_temporal = cam_cfg.get('temporal_filter', 'False') == 'True'
+    init_hole_fill = cam_cfg.get('hole_filling', 'False') == 'True'
 
-    mp_complex = config.getint('MediaPipe', 'model_complexity', fallback=1)
-    mp_conf = config.getfloat('MediaPipe', 'min_confidence', fallback=0.5)
+    mp_cfg = config['MediaPipe'] if 'MediaPipe' in config else {}
+    pose_estimator = PoseEstimator(
+        model_complexity=int(mp_cfg.get('model_complexity', '1')), 
+        min_conf=float(mp_cfg.get('min_confidence', '0.5'))
+    )
 
-    print("Initializing RealSense camera...")
+    print("Initializing RealSense camera (Filters off by default)...")
     camera = RealSenseCamera(
         width=width, height=height, fps=fps, 
-        auto_exposure=auto_exp, manual_exposure=exposure,
-        preset=preset, spatial=spatial, temporal=temporal, hole_filling=hole_fill
+        auto_exposure=init_auto_exp, manual_exposure=init_exposure,
+        preset=int(init_preset), spatial=init_spatial, temporal=init_temporal, 
+        hole_filling=init_hole_fill
     )
+    camera.set_laser_power(init_laser)
     
     if not camera.pipeline:
         print("Failed to start RealSense camera.")
         return
 
-    pose_estimator = PoseEstimator(model_complexity=mp_complex, min_conf=mp_conf)
+    # --- DearPyGui Setup ---
+    dpg.create_context()
+    
+    # The texture size is two frames side-by-side (RGB + Depth)
+    tex_width, tex_height = width * 2, height
+    
+    with dpg.texture_registry(show=False):
+        # Create a dynamic texture initialized with zeros (RGBA float32 flat array)
+        empty_data = np.zeros((tex_width * tex_height * 4,), dtype=np.float32)
+        dpg.add_dynamic_texture(width=tex_width, height=tex_height, default_value=empty_data, tag="video_texture")
 
-    window_name = "RealSense Calibration (Press 's' to Save, 'q' to Quit)"
-    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+    with dpg.window(tag="Primary Window"):
+        # Top: Video Feed mapping to the texture
+        dpg.add_image("video_texture")
+        
+        # Bottom: Native UI Controls
+        with dpg.child_window(height=160):
+            with dpg.group(horizontal=True):
+                # Column 1
+                with dpg.group(width=300):
+                    dpg.add_text("HARDWARE SETTINGS", color=(100, 200, 255))
+                    dpg.add_combo(label="Visual Preset", items=["0", "1", "2", "3", "4", "5"], default_value=init_preset, tag="preset")
+                    dpg.add_slider_int(label="Laser Power", default_value=init_laser, min_value=0, max_value=360, tag="laser")
+                    dpg.add_spacer(height=10)
+                    dpg.add_text("FPS: 0.0", tag="fps_text", color=(255, 255, 0))
 
-    # Trackbars for realtime configuration
-    cv2.createTrackbar("Preset(0-5)", window_name, preset, 5, noop)
-    cv2.createTrackbar("Auto Exp", window_name, 1 if auto_exp else 0, 1, noop)
-    cv2.createTrackbar("Exposure", window_name, exposure, 5000, noop)
-    cv2.createTrackbar("Spatial", window_name, 1 if spatial else 0, 1, noop)
-    cv2.createTrackbar("Temporal", window_name, 1 if temporal else 0, 1, noop)
-    cv2.createTrackbar("Hole Fill", window_name, 1 if hole_fill else 0, 1, noop)
+                # Column 2
+                with dpg.group(width=300):
+                    dpg.add_text("EXPOSURE", color=(100, 200, 255))
+                    dpg.add_checkbox(label="Auto Exposure", default_value=init_auto_exp, tag="auto_exp")
+                    dpg.add_slider_int(label="Manual Exposure", default_value=init_exposure, min_value=1, max_value=5000, tag="exposure")
 
-    print("\nStarting realtime calibration stream...")
-    print("- MediaPipe joints will render as green circles on the RGB feed.")
-    print("- Depth map is rendered using a heatmap on the right.")
-    print("- Press 's' to save the current trackbar settings to settings.ini.")
-    print("- Press 'q' to quit.")
+                # Column 3
+                with dpg.group(width=200):
+                    dpg.add_text("SOFTWARE FILTERS", color=(100, 200, 255))
+                    dpg.add_checkbox(label="Spatial Filter", default_value=init_spatial, tag="spatial")
+                    dpg.add_checkbox(label="Temporal Filter", default_value=init_temporal, tag="temporal")
+                    dpg.add_checkbox(label="Hole Filling", default_value=init_hole_fill, tag="hole_fill")
+
+                # Column 4
+                with dpg.group(width=200):
+                    dpg.add_text("ACTIONS", color=(100, 200, 255))
+                    dpg.add_button(label="Save Settings", callback=save_settings, width=-1)
+                    dpg.add_button(label="Quit", callback=lambda: dpg.stop_dearpygui(), width=-1)
+
+    dpg.create_viewport(title='RealSense Configurator (DearPyGui)', width=tex_width + 30, height=tex_height + 210)
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
+    dpg.set_primary_window("Primary Window", True)
 
     prev_time = time.time()
     
+    last_preset = int(init_preset)
+    last_auto_exp = init_auto_exp
+    last_exposure = init_exposure
+    last_laser = init_laser
+
     try:
-        while True:
-            # Read current trackbar states
-            cur_preset = cv2.getTrackbarPos("Preset(0-5)", window_name)
-            cur_auto = cv2.getTrackbarPos("Auto Exp", window_name) == 1
-            cur_exp = cv2.getTrackbarPos("Exposure", window_name)
-            cur_spatial = cv2.getTrackbarPos("Spatial", window_name) == 1
-            cur_temporal = cv2.getTrackbarPos("Temporal", window_name) == 1
-            cur_hole = cv2.getTrackbarPos("Hole Fill", window_name) == 1
-
-            # Apply settings to hardware dynamically if they changed
-            if cur_preset != preset:
-                preset = cur_preset
-                camera.set_preset(preset)
+        while dpg.is_dearpygui_running():
+            # 1. Read Current UI States
+            curr_preset = int(dpg.get_value("preset"))
+            curr_auto_exp = dpg.get_value("auto_exp")
+            curr_exposure = dpg.get_value("exposure")
+            curr_laser = dpg.get_value("laser")
             
-            if cur_auto != auto_exp or cur_exp != exposure:
-                auto_exp = cur_auto
-                exposure = max(1, cur_exp) # avoid 0 exposure
-                camera.set_exposure(auto_exp, exposure)
-
-            # Update filter toggles in the camera class loop
-            camera.use_spatial = cur_spatial
-            camera.use_temporal = cur_temporal
-            camera.use_hole_filling = cur_hole
-
-            color_frame, depth_frame = camera.get_frames()
-            if color_frame is None or depth_frame is None:
-                continue
+            # Hide/Show manual exposure slider based on Auto Exposure
+            dpg.configure_item("exposure", show=not curr_auto_exp)
+            
+            # 2. Update Hardware if UI states changed
+            if curr_preset != last_preset:
+                camera.set_preset(curr_preset)
+                last_preset = curr_preset
+            
+            if curr_auto_exp != last_auto_exp or curr_exposure != last_exposure:
+                camera.set_exposure(curr_auto_exp, max(1, curr_exposure))
+                last_auto_exp = curr_auto_exp
+                last_exposure = curr_exposure
                 
-            # FPS Calculation
-            curr_time = time.time()
-            fps_display = 1 / (curr_time - prev_time)
-            prev_time = curr_time
+            if curr_laser != last_laser:
+                camera.set_laser_power(curr_laser)
+                last_laser = curr_laser
 
-            # Color conversion for OpenCV display (Camera outputs RGB natively, OpenCV requires BGR)
-            disp_color = cv2.cvtColor(color_frame, cv2.COLOR_RGB2BGR)
+            # 3. Apply software filters per frame
+            camera.use_spatial = dpg.get_value("spatial")
+            camera.use_temporal = dpg.get_value("temporal")
+            camera.use_hole_filling = dpg.get_value("hole_fill")
 
-            # Inference (MediaPipe expects RGB)
-            pose_3d = pose_estimator.estimate(color_frame)
+            # 4. Fetch and Process Frames
+            color_frame, depth_frame = camera.get_frames()
+            if color_frame is not None and depth_frame is not None:
+                curr_time = time.time()
+                fps_display = 1 / (curr_time - prev_time) if (curr_time - prev_time) > 0 else 0
+                prev_time = curr_time
+                
+                # Update FPS in the control zone
+                dpg.set_value("fps_text", f"FPS: {fps_display:.1f}")
 
-            # Overlay Skeleton Joints
-            if pose_3d:
-                for i, (x, y, z) in enumerate(pose_3d):
-                    cv2.circle(disp_color, (int(x), int(y)), 4, (0, 255, 0), -1)
-                    
-            # Process depth frame into a color heatmap for visual inspection
-            if hasattr(depth_frame, 'get_data'):
-                depth_data = np.asanyarray(depth_frame.get_data())
-                # Normalize depth scaling for display (scales millimeter distance to 0-255)
-                depth_norm = cv2.convertScaleAbs(depth_data, alpha=0.03)
-                disp_depth = cv2.applyColorMap(depth_norm, cv2.COLORMAP_JET)
-            else:
-                disp_depth = np.zeros_like(disp_color)
+                pose_3d = pose_estimator.estimate(color_frame)
+                disp_color = cv2.cvtColor(color_frame, cv2.COLOR_RGB2BGR)
+                
+                if pose_3d:
+                    for i, (x, y, z) in enumerate(pose_3d):
+                        cv2.circle(disp_color, (int(x), int(y)), 4, (0, 255, 0), -1)
 
-            # Draw labels
-            cv2.putText(disp_color, f"RGB + MediaPipe | FPS: {fps_display:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            cv2.putText(disp_depth, "Filtered Depth Map", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                if hasattr(depth_frame, 'get_data'):
+                    depth_data = np.asanyarray(depth_frame.get_data())
+                    depth_norm = cv2.convertScaleAbs(depth_data, alpha=0.03)
+                    disp_depth = cv2.applyColorMap(depth_norm, cv2.COLORMAP_JET)
+                else:
+                    disp_depth = np.zeros_like(disp_color)
 
-            # Concatenate side by side for comparison
-            combined = np.hstack((disp_color, disp_depth))
-            cv2.imshow(window_name, combined)
+                # Combine images side by side (Text Overlays removed)
+                combined = np.hstack((disp_color, disp_depth))
+                
+                # Convert to RGBA (DearPyGui expects RGBA)
+                rgba = cv2.cvtColor(combined, cv2.COLOR_BGR2RGBA)
+                
+                # Ensure the frame strictly matches the texture size to avoid crashes
+                if rgba.shape[1] != tex_width or rgba.shape[0] != tex_height:
+                    rgba = cv2.resize(rgba, (tex_width, tex_height))
 
-            # Keyboard Input
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                break
-            elif key == ord('s'):
-                # Persist to settings.ini
-                config['Camera']['preset'] = str(preset)
-                config['Camera']['auto_exposure'] = str(auto_exp)
-                config['Camera']['exposure'] = str(exposure)
-                config['Camera']['spatial_filter'] = str(cur_spatial)
-                config['Camera']['temporal_filter'] = str(cur_temporal)
-                config['Camera']['hole_filling'] = str(cur_hole)
-                with open(SETTINGS_PATH, 'w') as f:
-                    config.write(f)
-                print(">> Hardware Settings saved to settings.ini!")
+                # Normalize array to 0.0 - 1.0 float32, then flatten it rapidly
+                texture_data = (rgba.astype(np.float32) / 255.0).ravel()
+                
+                # Feed the raw float data into the DearPyGui texture
+                dpg.set_value("video_texture", texture_data)
+
+            # 5. Render GUI Loop
+            dpg.render_dearpygui_frame()
 
     except KeyboardInterrupt:
         pass
     finally:
-        print("Stopping camera stream...")
         camera.stop()
-        cv2.destroyAllWindows()
+        dpg.destroy_context()
 
 if __name__ == "__main__":
     main()
