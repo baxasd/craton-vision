@@ -2,11 +2,11 @@
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <assemblyIdentity
     type="win32"
-    name="CameraRecorder"
-    version="1.0.0.0"
+    name="CratonVision"
+    version="0.1.0"
     processorArchitecture="*"
   />
-  <description>Camera Recorder Application</description>
+  <description>Vision Pipeline of Project Craton - Human Osteo Skeletal Tracking</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges>

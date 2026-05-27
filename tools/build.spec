@@ -29,7 +29,7 @@ icon_path = os.path.join(project_root, 'tools', 'app.ico')
 
 # Analysis for the console application: app.py
 a = Analysis(
-    [os.path.join(project_root, 'app.py')],
+    [os.path.join(project_root, 'recorder.py')],
     pathex=[project_root],
     binaries=binaries_mp,
     datas=datas_mp,
@@ -88,7 +88,7 @@ exe_a = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='app',
+    name='Recorder',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -110,7 +110,7 @@ exe_b = EXE(
     b.scripts,
     [],
     exclude_binaries=True,
-    name='calibrator',
+    name='Calibrator',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -132,7 +132,7 @@ exe_c = EXE(
     c.scripts,
     [],
     exclude_binaries=True,
-    name='viewer',
+    name='Viewer',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -165,5 +165,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='RealSenseRecorderSuite',
+    name='CratonVision',
 )

@@ -1,4 +1,4 @@
-# Camera Recorder
+# Craton Vision
 
 
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org/) 
@@ -66,5 +66,5 @@ pyinstaller --clean tools/camera_recorder.spec
 
 ## Contribution & License
 
-- **License**: Distributed under the [Apache 2.0 License](LICENSE.md).
+- **License**: Distributed under the [Apache 2.0 License](LICENSE).
 - **Contributions**: Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change. PRs containing unreviewed, generated AI content will be closed.
