@@ -1,11 +1,30 @@
+import sys
 import configparser
 from pathlib import Path
 
-SETTINGS_PATH = "settings.ini"
+def get_base_path():
+    """Returns the base path for the application."""
+    if getattr(sys, 'frozen', False):
+        # If the application is run as a bundle, return the directory of the executable
+        return Path(sys.executable).parent
+    # If the application is run as a script, return the current directory
+    return Path(__file__).parent.parent
+
+def get_resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller."""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = Path(sys._MEIPASS)
+    except Exception:
+        base_path = Path(".").absolute()
+
+    return base_path / relative_path
+
+SETTINGS_PATH = get_base_path() / "settings.ini"
 
 def ensure_config():
     """Generates a default settings.ini if it doesn't exist."""
-    if not Path(SETTINGS_PATH).exists():
+    if not SETTINGS_PATH.exists():
         config = configparser.ConfigParser()
         
         # Camera-specific settings

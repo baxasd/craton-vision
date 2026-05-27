@@ -58,6 +58,12 @@ To inspect captured data, run
 python viewer.py
 ```
 
+To build executable
+
+```bash
+pyinstaller --clean tools/camera_recorder.spec
+```
+
 ## Contribution & License
 
 - **License**: Distributed under the [Apache 2.0 License](LICENSE.md).
