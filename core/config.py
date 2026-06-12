@@ -4,7 +4,7 @@ from pathlib import Path
 import os
 
 def get_base_path():
-    """Returns the base path for the application following Craton standards."""
+    """Returns the base path for the application following StrideLab standards."""
     if getattr(sys, 'frozen', False):
         root_base = sys._MEIPASS
         libs_path = os.path.join(root_base, 'libs')

@@ -2,11 +2,11 @@
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <assemblyIdentity
     type="win32"
-    name="CratonVision"
+    name="StrideLab"
     version="0.1.0"
     processorArchitecture="*"
   />
-  <description>Vision Pipeline of Project Craton - Human Osteo Skeletal Tracking</description>
+  <description>StrideLab - Sagittal-plane running gait capture and analysis</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges>

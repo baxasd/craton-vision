@@ -2,7 +2,7 @@
 
 import sys
 import os
-from PyInstaller.utils.hooks import collect_all, copy_metadata
+from PyInstaller.utils.hooks import collect_all, copy_metadata, collect_submodules
 
 # This spec file is designed to be run from the PROJECT ROOT.
 # Example: pyinstaller --clean tools/linux/build.spec
@@ -14,13 +14,35 @@ if project_root not in sys.path:
 
 block_cipher = None
 
-# Pre-collect mediapipe dependencies
+# Pre-collect mediapipe dependencies (capture side)
 try:
     datas_mp, binaries_mp, hiddenimports_mp = collect_all('mediapipe')
     datas_mp += copy_metadata("mediapipe")
 except Exception as e:
     print(f"Warning: Failed to collect mediapipe via collect_all: {e}")
     datas_mp, binaries_mp, hiddenimports_mp = [], [], []
+
+# Pre-collect streamlit and the scientific stack (Workbench / analysis side).
+# Streamlit reads its own package metadata at runtime, so it must be copied in.
+try:
+    datas_wb, binaries_wb, hiddenimports_wb = collect_all('streamlit')
+    datas_wb += copy_metadata("streamlit")
+except Exception as e:
+    print(f"Warning: Failed to collect streamlit via collect_all: {e}")
+    datas_wb, binaries_wb, hiddenimports_wb = [], [], []
+
+for _pkg in ('pandas', 'numpy', 'scipy', 'sklearn', 'plotly'):
+    try:
+        hiddenimports_wb += collect_submodules(_pkg)
+    except Exception as e:
+        print(f"Warning: Failed to collect submodules for {_pkg}: {e}")
+
+# Streamlit runs the dashboard from a script path, so the entry module and its
+# engine are shipped as data files under 'core/' for the frozen launcher to find.
+datas_wb += [
+    (os.path.join(project_root, 'core', 'workbench_main.py'), 'core'),
+    (os.path.join(project_root, 'core', 'workbench_logic.py'), 'core'),
+]
 
 # Common Analysis parameters
 runtime_hooks = [os.path.join(project_root, 'tools', 'hook.py')]
@@ -76,9 +98,27 @@ c = Analysis(
     noarchive=False,
 )
 
+# Analysis for the Workbench dashboard launcher: workbench.py
+d = Analysis(
+    [os.path.join(project_root, 'workbench.py')],
+    pathex=[project_root],
+    binaries=binaries_wb,
+    datas=datas_wb,
+    hiddenimports=hiddenimports_wb + ['core.workbench_main', 'core.workbench_logic'],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=runtime_hooks,
+    excludes=[],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
 pyz_a = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 pyz_b = PYZ(b.pure, b.zipped_data, cipher=block_cipher)
 pyz_c = PYZ(c.pure, c.zipped_data, cipher=block_cipher)
+pyz_d = PYZ(d.pure, d.zipped_data, cipher=block_cipher)
 
 # EXE for recorder.py
 exe_a = EXE(
@@ -140,6 +180,26 @@ exe_c = EXE(
     contents_directory='libs'
 )
 
+# EXE for workbench.py (Console — keeps the Streamlit server logs visible)
+exe_d = EXE(
+    pyz_d,
+    d.scripts,
+    [],
+    exclude_binaries=True,
+    name='Workbench',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    contents_directory='libs'
+)
+
 # Bundle everything into a single distribution folder
 coll = COLLECT(
     exe_a,
@@ -154,8 +214,12 @@ coll = COLLECT(
     c.binaries,
     c.zipfiles,
     c.datas,
+    exe_d,
+    d.binaries,
+    d.zipfiles,
+    d.datas,
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Vision',
+    name='StrideLab',
 )
