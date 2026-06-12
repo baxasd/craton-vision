@@ -3,8 +3,8 @@
   <assemblyIdentity
     type="win32"
     name="StrideLab"
-    version="0.1.0"
-    processorArchitecture="*"
+    version="0.1.0.0"
+    processorArchitecture="amd64"
   />
   <description>StrideLab - Sagittal-plane running gait capture and analysis</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">

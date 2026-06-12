@@ -13,6 +13,10 @@ class RealSenseCamera:
     def __init__(self, width=640, height=480, fps=30, auto_exposure=True, manual_exposure=156,
                  preset="High Density", spatial=False, temporal=False, hole_filling=False, decimation=False, disparity=False):
         self.pipeline = None
+        self.profile = None
+        self.config = None
+        self.align = None
+        
         self.use_spatial = spatial
         self.use_temporal = temporal
         self.use_hole_filling = hole_filling

@@ -4,17 +4,21 @@ from pathlib import Path
 import os
 
 def get_base_path():
-    """Returns the base path for the application following StrideLab standards."""
+    """Returns the base path for the application (where the .exe or project root is)."""
     if getattr(sys, 'frozen', False):
-        root_base = sys._MEIPASS
-        libs_path = os.path.join(root_base, 'libs')
-        return Path(libs_path if os.path.exists(libs_path) else root_base)
+        # Path to the directory containing the executable
+        return Path(os.path.dirname(sys.executable))
     else:
+        # Path to the project root (two levels up from core/config.py)
         return Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def get_resource_path(relative_path):
-    """Get absolute path to resource, works for dev and for PyInstaller."""
-    return get_base_path() / relative_path
+    """Get absolute path to bundled resource, works for dev and for PyInstaller."""
+    if getattr(sys, 'frozen', False):
+        # sys._MEIPASS points to the internal data directory (e.g. 'libs')
+        return Path(sys._MEIPASS) / relative_path
+    else:
+        return get_base_path() / relative_path
 
 SETTINGS_PATH = get_base_path() / "settings.ini"
 

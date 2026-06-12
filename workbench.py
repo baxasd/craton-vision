@@ -9,10 +9,10 @@ def open_browser():
 
 if __name__ == "__main__":
     if getattr(sys, 'frozen', False):
-        # In one-directory mode with contents_directory='libs'
-        # sys._MEIPASS is the root directory containing the executable.
-        root_dir = sys._MEIPASS
-        libs_dir = os.path.join(root_dir, 'libs')
+        # When contents_directory='libs' is used in the SPEC file, 
+        # sys._MEIPASS points to the internal 'libs' folder.
+        libs_dir = sys._MEIPASS
+        root_dir = os.path.dirname(libs_dir)
         
         # Add libs to sys.path for the current process
         if libs_dir not in sys.path:
